@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -16,6 +18,9 @@ import (
 type RequestService struct {
 	store       *store.Store
 	aiClient    AIParser
+	transcriber Transcriber
+	emailClient EmailSender
+	mediaSvc    *MediaService
 }
 
 type AIParser interface {
@@ -24,8 +29,22 @@ type AIParser interface {
 	ParsePDF(ctx context.Context, pdfURL string, inventory []db.Inventory) ([]domain.StructuredItem, float64, error)
 }
 
-func NewRequestService(s *store.Store, ai AIParser) *RequestService {
-	return &RequestService{store: s, aiClient: ai}
+type Transcriber interface {
+	Transcribe(ctx context.Context, audioData io.Reader) (string, error)
+}
+
+type EmailSender interface {
+	SendOrderConfirmation(ctx context.Context, toEmail, dealerName string, items []domain.StructuredItem) error
+}
+
+func NewRequestService(s *store.Store, ai AIParser, transcriber Transcriber, emailClient EmailSender, mediaSvc *MediaService) *RequestService {
+	return &RequestService{
+		store:       s,
+		aiClient:    ai,
+		transcriber: transcriber,
+		emailClient: emailClient,
+		mediaSvc:    mediaSvc,
+	}
 }
 
 type CreateRequestInput struct {
@@ -104,8 +123,31 @@ func (s *RequestService) Process(ctx context.Context, requestID uuid.UUID) (*db.
 	case db.InputTypePdf:
 		items, confidence, parseErr = s.aiClient.ParsePDF(ctx, req.MediaUrl, inventory)
 	case db.InputTypeVoice:
-		// Voice transcription would happen first, then treat as text
-		items, confidence, parseErr = s.aiClient.ParseText(ctx, req.RawText, inventory)
+		if s.transcriber == nil || s.mediaSvc == nil {
+			parseErr = fmt.Errorf("voice transcription not configured")
+			break
+		}
+
+		audioReader, _, dlErr := s.mediaSvc.Download(ctx, req.MediaUrl)
+		if dlErr != nil {
+			parseErr = fmt.Errorf("download audio: %w", dlErr)
+			break
+		}
+		defer audioReader.Close()
+
+		transcript, tErr := s.transcriber.Transcribe(ctx, audioReader)
+		if tErr != nil {
+			parseErr = fmt.Errorf("transcribe audio: %w", tErr)
+			break
+		}
+
+		// Store the transcript
+		s.store.Queries.UpdateRequestRawText(ctx, db.UpdateRequestRawTextParams{
+			ID:      requestID,
+			RawText: transcript,
+		})
+
+		items, confidence, parseErr = s.aiClient.ParseText(ctx, transcript, inventory)
 	}
 
 	if parseErr != nil {
@@ -183,7 +225,28 @@ func (s *RequestService) Send(ctx context.Context, requestID uuid.UUID) (*db.Req
 		return nil, fmt.Errorf("send: %w", err)
 	}
 
-	// TODO: Send notification to assigned rep / dealer
+	// Send order confirmation email if configured
+	if s.emailClient != nil {
+		dealer, dErr := s.store.Queries.GetDealer(ctx, req.DealerID)
+		if dErr != nil {
+			slog.Warn("failed to get dealer for email", "error", dErr)
+			return &req, nil
+		}
+
+		if dealer.ContactEmail != "" {
+			var structuredItems []domain.StructuredItem
+			if len(req.StructuredItems) > 0 {
+				if jErr := json.Unmarshal(req.StructuredItems, &structuredItems); jErr != nil {
+					slog.Warn("failed to unmarshal items for email", "error", jErr)
+					return &req, nil
+				}
+			}
+
+			if eErr := s.emailClient.SendOrderConfirmation(ctx, dealer.ContactEmail, dealer.Name, structuredItems); eErr != nil {
+				slog.Warn("failed to send order confirmation email", "error", eErr)
+			}
+		}
+	}
 
 	return &req, nil
 }

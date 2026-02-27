@@ -12,6 +12,9 @@ import (
 
 	"github.com/builderwire/lumber-now/backend/internal/app"
 	"github.com/builderwire/lumber-now/backend/internal/platform/anthropic"
+	"github.com/builderwire/lumber-now/backend/internal/platform/email"
+	"github.com/builderwire/lumber-now/backend/internal/platform/gcloud"
+	s3platform "github.com/builderwire/lumber-now/backend/internal/platform/s3"
 	"github.com/builderwire/lumber-now/backend/internal/service"
 	"github.com/builderwire/lumber-now/backend/internal/store"
 	"github.com/builderwire/lumber-now/backend/internal/store/db"
@@ -37,7 +40,34 @@ func main() {
 
 	s := store.New(pool)
 	aiClient := anthropic.NewClient(cfg.AnthropicAPIKey)
-	reqSvc := service.NewRequestService(s, aiClient)
+
+	// Optional: S3/Media for voice downloads
+	var mediaSvc *service.MediaService
+	s3Client, err := s3platform.NewClient(cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey)
+	if err != nil {
+		slog.Warn("S3 client init failed, voice transcription disabled", "error", err)
+	} else {
+		mediaSvc = service.NewMediaService(s3Client, cfg.S3Bucket)
+	}
+
+	// Optional: Google Cloud STT
+	var transcriber service.Transcriber
+	if cfg.GCloudCredentialsFile != "" {
+		speechClient, err := gcloud.NewSpeechClient(context.Background(), cfg.GCloudCredentialsFile)
+		if err != nil {
+			slog.Warn("Google Cloud STT init failed", "error", err)
+		} else {
+			transcriber = speechClient
+		}
+	}
+
+	// Optional: Resend email
+	var emailClient service.EmailSender
+	if cfg.ResendAPIKey != "" {
+		emailClient = email.NewClient(cfg.ResendAPIKey, cfg.EmailFrom)
+	}
+
+	reqSvc := service.NewRequestService(s, aiClient, transcriber, emailClient, mediaSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

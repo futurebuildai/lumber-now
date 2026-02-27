@@ -6,16 +6,19 @@ import (
 )
 
 type Config struct {
-	Port            string
-	DatabaseURL     string
-	JWTSecret       string
-	AnthropicAPIKey string
-	S3Endpoint      string
-	S3Bucket        string
-	S3Region        string
-	S3AccessKey     string
-	S3SecretKey     string
-	CORSOrigins     string
+	Port                 string
+	DatabaseURL          string
+	JWTSecret            string
+	AnthropicAPIKey      string
+	S3Endpoint           string
+	S3Bucket             string
+	S3Region             string
+	S3AccessKey          string
+	S3SecretKey          string
+	CORSOrigins          string
+	GCloudCredentialsFile string
+	ResendAPIKey         string
+	EmailFrom            string
 }
 
 func LoadConfig() (*Config, error) {
@@ -29,7 +32,10 @@ func LoadConfig() (*Config, error) {
 		S3Region:        getEnv("S3_REGION", "us-east-1"),
 		S3AccessKey:     os.Getenv("S3_ACCESS_KEY"),
 		S3SecretKey:     os.Getenv("S3_SECRET_KEY"),
-		CORSOrigins:     getEnv("CORS_ORIGINS", "*"),
+		CORSOrigins:          getEnv("CORS_ORIGINS", "*"),
+		GCloudCredentialsFile: os.Getenv("GCLOUD_CREDENTIALS_FILE"),
+		ResendAPIKey:         os.Getenv("RESEND_API_KEY"),
+		EmailFrom:            getEnv("EMAIL_FROM", "LumberNow <onboarding@resend.dev>"),
 	}
 
 	if cfg.DatabaseURL == "" {

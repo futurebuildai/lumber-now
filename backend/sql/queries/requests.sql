@@ -44,3 +44,6 @@ SELECT count(*) FROM requests WHERE dealer_id = $1;
 
 -- name: CountRequestsByStatus :one
 SELECT count(*) FROM requests WHERE dealer_id = $1 AND status = $2;
+
+-- name: UpdateRequestRawText :exec
+UPDATE requests SET raw_text = $2, updated_at = now() WHERE id = $1;
