@@ -1,0 +1,39 @@
+# Environment
+.env
+.env.local
+
+# Go
+backend/bin/
+backend/internal/store/db/*.go
+!backend/internal/store/db/.gitkeep
+
+# Node
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Flutter
+mobile/.dart_tool/
+mobile/.packages
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/pubspec.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+*.log
+tmp/
