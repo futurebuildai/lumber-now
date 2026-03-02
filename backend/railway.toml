@@ -1,0 +1,9 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/v1/liveness"
+healthcheckTimeout = 5
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

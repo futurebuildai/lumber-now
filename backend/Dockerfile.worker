@@ -7,12 +7,17 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /worker ./cmd/worker
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata wget && \
+RUN apk add --no-cache ca-certificates tzdata wget curl && \
     addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Install golang-migrate for running migrations on deploy
+RUN curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.linux-amd64.tar.gz | tar xz -C /usr/local/bin
+
 COPY --from=builder /worker /usr/local/bin/worker
+COPY migrations /migrations
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --spider -q http://localhost:9090/healthz || exit 1
 
 USER appuser
-CMD ["worker"]
+CMD ["sh", "-c", "migrate -path /migrations -database \"$DATABASE_URL\" up && exec worker"]
