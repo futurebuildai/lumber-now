@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/v1/:path*", "destination": "$BACKEND_URL/v1/:path*" },
+    { "source": "/v1/:path*", "destination": "https://api-production-7578.up.railway.app/v1/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
