@@ -17,8 +17,13 @@ const TenantContext = createContext<TenantState>({
 
 function getSlug(): string {
   const hostname = window.location.hostname
-  // localhost -> use env var or "demo"
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+  // localhost or platform domains (vercel.app, railway.app) -> use env var
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname.endsWith('.vercel.app') ||
+    hostname.endsWith('.railway.app')
+  ) {
     return import.meta.env.VITE_DEFAULT_TENANT_SLUG || 'demo'
   }
   // acme.lumbernow.com -> acme
