@@ -24,9 +24,9 @@ RETURNING *;
 
 -- name: UpdateInventoryItem :one
 UPDATE inventory
-SET name = $2, description = $3, category = $4, unit = $5, price = $6,
-    in_stock = $7, metadata = $8, updated_at = now()
-WHERE id = $1
+SET name = $3, description = $4, category = $5, unit = $6, price = $7,
+    in_stock = $8, metadata = $9, updated_at = now()
+WHERE id = $1 AND dealer_id = $2 AND version = $10
 RETURNING *;
 
 -- name: UpsertInventoryItem :one
@@ -44,7 +44,7 @@ ON CONFLICT (dealer_id, sku) DO UPDATE SET
 RETURNING *;
 
 -- name: DeleteInventoryItem :exec
-DELETE FROM inventory WHERE id = $1;
+DELETE FROM inventory WHERE id = $1 AND dealer_id = $2;
 
 -- name: CountInventory :one
 SELECT count(*) FROM inventory WHERE dealer_id = $1;

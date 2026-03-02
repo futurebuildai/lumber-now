@@ -11,7 +11,10 @@ class ShimmerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors;
-    return Shimmer.fromColors(
+    return Semantics(
+      label: 'Loading content',
+      excludeSemantics: true,
+      child: Shimmer.fromColors(
       baseColor: colors.shimmerBase,
       highlightColor: colors.shimmerHighlight,
       child: Container(
@@ -22,6 +25,7 @@ class ShimmerCard extends StatelessWidget {
           borderRadius: Radii.borderMd,
         ),
       ),
+    ),
     );
   }
 }

@@ -18,7 +18,9 @@ class SKUMatchCard extends StatelessWidget {
       confidenceColor = Colors.red;
     }
 
-    return Card(
+    return Semantics(
+      label: '${item.name}, ${item.quantity} ${item.unit}, ${confidencePercent}% confidence${item.matched ? ", matched" : ""}',
+      child: Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -96,6 +98,7 @@ class SKUMatchCard extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }

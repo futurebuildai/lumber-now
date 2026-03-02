@@ -2,6 +2,8 @@ package handler
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -23,8 +25,8 @@ func NewPlatformHandler(s *store.Store, authSvc *service.AuthService, mediaSvc *
 }
 
 func (h *PlatformHandler) ListDealers(c *fiber.Ctx) error {
-	limit := int32(c.QueryInt("limit", 50))
-	offset := int32(c.QueryInt("offset", 0))
+	limit := clampLimit(int32(c.QueryInt("limit", 50)))
+	offset := clampOffset(int32(c.QueryInt("offset", 0)))
 
 	dealers, err := h.store.Queries.ListDealers(c.Context(), db.ListDealersParams{
 		Limit:  limit,
@@ -53,6 +55,10 @@ func (h *PlatformHandler) CreateDealer(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
+	if body.Name == "" || body.Slug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name and slug are required"})
+	}
+
 	dealer, err := h.store.Queries.CreateDealer(c.Context(), db.CreateDealerParams{
 		Name:           body.Name,
 		Slug:           body.Slug,
@@ -65,7 +71,7 @@ func (h *PlatformHandler) CreateDealer(c *fiber.Ctx) error {
 		Address:        body.Address,
 	})
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "failed to create dealer"})
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(dealer)
@@ -175,17 +181,34 @@ func (h *PlatformHandler) UploadLogo(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "file required"})
 	}
 
+	// Enforce file size limit (5MB for logos)
+	if file.Size > 5*1024*1024 {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{"error": "file too large (max 5MB)"})
+	}
+
+	// Validate content type: only image types allowed for logos
+	allowedLogoTypes := map[string]bool{
+		"image/jpeg":    true,
+		"image/png":     true,
+		"image/webp":    true,
+		"image/svg+xml": true,
+	}
+	ct := file.Header.Get("Content-Type")
+	if ct == "" || !allowedLogoTypes[ct] {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "unsupported file type (allowed: jpeg, png, webp, svg)"})
+	}
+
 	f, err := file.Open()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to open file"})
 	}
 	defer f.Close()
 
-	filename := fmt.Sprintf("%s-%s", uuid.New().String()[:8], file.Filename)
-	contentType := file.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
+	// Sanitize filename: keep only base name, strip path traversal
+	safeName := filepath.Base(file.Filename)
+	safeName = strings.ReplaceAll(safeName, "..", "")
+	filename := fmt.Sprintf("%s-%s", uuid.New().String()[:8], safeName)
+	contentType := ct
 
 	// Store under a platform-level path since there's no dealer context yet
 	platformID, _ := uuid.Parse("00000000-0000-0000-0000-000000000000")
@@ -233,7 +256,7 @@ func (h *PlatformHandler) CreateDealerUser(c *fiber.Ctx) error {
 		Role:     domain.RoleDealerAdmin,
 	})
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "failed to create user"})
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{

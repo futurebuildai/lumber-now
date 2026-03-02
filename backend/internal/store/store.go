@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,13 +23,32 @@ func New(pool *pgxpool.Pool) *Store {
 	}
 }
 
-func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+type PoolConfig struct {
+	MaxConns int32
+	MinConns int32
+}
+
+func NewPool(ctx context.Context, databaseURL string, opts ...PoolConfig) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse database url: %w", err)
 	}
-	config.MaxConns = 25
-	config.MinConns = 5
+
+	maxConns := int32(25)
+	minConns := int32(5)
+	if len(opts) > 0 {
+		if opts[0].MaxConns > 0 {
+			maxConns = opts[0].MaxConns
+		}
+		if opts[0].MinConns > 0 {
+			minConns = opts[0].MinConns
+		}
+	}
+	config.MaxConns = maxConns
+	config.MinConns = minConns
+	config.MaxConnLifetime = 30 * time.Minute
+	config.MaxConnIdleTime = 5 * time.Minute
+	config.HealthCheckPeriod = 30 * time.Second
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {

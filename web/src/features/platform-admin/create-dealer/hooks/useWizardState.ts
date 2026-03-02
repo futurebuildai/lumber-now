@@ -9,7 +9,7 @@ const initialState: WizardState = {
   createdDealerId: null,
 }
 
-function wizardReducer(state: WizardState, action: WizardAction): WizardState {
+export function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   switch (action.type) {
     case 'SET_STEP':
       return { ...state, step: action.step }

@@ -18,7 +18,10 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors;
-    return Padding(
+    return Semantics(
+      header: true,
+      label: count != null ? '$title ($count)' : title,
+      child: Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
       child: Row(
         children: [
@@ -44,6 +47,7 @@ class SectionHeader extends StatelessWidget {
           if (trailing != null) trailing!,
         ],
       ),
+    ),
     );
   }
 }

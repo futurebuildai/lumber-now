@@ -1,0 +1,122 @@
+# Production Docker Compose override.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   - All secrets must be provided via environment variables (never committed)
+#   - TLS termination handled by an external load balancer / reverse proxy
+#   - Database backups: configure pg_dump cron or use managed DB snapshots
+#
+# Backup strategy:
+#   Automated daily backups via pg_dump cron job (run on a sidecar or host):
+#     0 2 * * * pg_dump -Fc "$DATABASE_URL" | gzip > /backups/lumber_now_$(date +\%F).sql.gz
+#   Retain 30 days of backups. For managed databases (RDS, Cloud SQL), enable
+#   automated snapshots with a 30-day retention window.
+
+services:
+  db:
+    environment:
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:-lumber_now}
+    ports: []  # No public port in production
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  minio:
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+    ports: []  # No public ports in production
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  migrate:
+    environment:
+      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME:-lumber_now}?sslmode=require
+
+  api:
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME:-lumber_now}?sslmode=require
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (min 32 chars)}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-lumber-now}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+      GCLOUD_CREDENTIALS_FILE: ${GCLOUD_CREDENTIALS_FILE:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-LumberNow <orders@lumbernow.com>}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  worker:
+    ports: []  # Worker metrics not exposed publicly
+    environment:
+      WORKER_CONCURRENCY: "5"
+      WORKER_POLL_INTERVAL: "5s"
+      WORKER_BATCH_SIZE: "20"
+      DATABASE_URL: postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME:-lumber_now}?sslmode=require
+      JWT_SECRET: ${JWT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-lumber-now}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      GCLOUD_CREDENTIALS_FILE: ${GCLOUD_CREDENTIALS_FILE:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-LumberNow <orders@lumbernow.com>}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"

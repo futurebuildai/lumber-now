@@ -61,7 +61,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
     api.get<TenantConfig>('/tenant/config', { params: { slug } })
       .then(({ data }) => {
-        localStorage.setItem('tenant_id', data.dealer_id)
+        sessionStorage.setItem('tenant_id', data.dealer_id)
         injectCssVars(data)
         setState({ config: data, loading: false, error: null })
       })

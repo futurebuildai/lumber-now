@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 
@@ -11,9 +12,20 @@ import (
 	"github.com/builderwire/lumber-now/backend/internal/store"
 )
 
-func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
 
+func main() {
 	godotenv.Load()
 
 	cfg, err := app.LoadConfig()
@@ -22,7 +34,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	pool, err := store.NewPool(context.Background(), cfg.DatabaseURL)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)})))
+
+	pool, err := store.NewPool(context.Background(), cfg.DatabaseURL, store.PoolConfig{
+		MaxConns: cfg.DBMaxConns,
+		MinConns: cfg.DBMinConns,
+	})
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
 		os.Exit(1)

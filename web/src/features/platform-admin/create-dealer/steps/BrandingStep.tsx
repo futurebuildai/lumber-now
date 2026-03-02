@@ -32,7 +32,7 @@ export default function BrandingStep({ formData, onUpdate, onNext, onBack }: Pro
   }
 
   return (
-    <div className="space-y-6">
+    <div role="form" aria-label="Branding" className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-foreground">Branding</h2>
         <p className="text-sm text-muted-foreground mt-1">Upload a logo and choose brand colors. See the preview on the right.</p>
@@ -51,6 +51,7 @@ export default function BrandingStep({ formData, onUpdate, onNext, onBack }: Pro
               <button
                 onClick={removeLogo}
                 className="p-1.5 rounded-md hover:bg-background text-muted-foreground"
+                aria-label="Remove logo"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -87,35 +88,41 @@ export default function BrandingStep({ formData, onUpdate, onNext, onBack }: Pro
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Primary Color</label>
+              <label htmlFor="primary-color" className="text-xs text-muted-foreground">Primary Color</label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
                   value={formData.primary_color}
                   onChange={(e) => onUpdate({ primary_color: e.target.value })}
                   className="h-10 w-14 rounded-md border border-input cursor-pointer"
+                  aria-label="Primary color picker"
                 />
                 <input
+                  id="primary-color"
                   type="text"
                   value={formData.primary_color}
                   onChange={(e) => onUpdate({ primary_color: e.target.value })}
+                  aria-label="Primary color hex value"
                   className="flex h-10 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
                 />
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Secondary Color</label>
+              <label htmlFor="secondary-color" className="text-xs text-muted-foreground">Secondary Color</label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
                   value={formData.secondary_color}
                   onChange={(e) => onUpdate({ secondary_color: e.target.value })}
                   className="h-10 w-14 rounded-md border border-input cursor-pointer"
+                  aria-label="Secondary color picker"
                 />
                 <input
+                  id="secondary-color"
                   type="text"
                   value={formData.secondary_color}
                   onChange={(e) => onUpdate({ secondary_color: e.target.value })}
+                  aria-label="Secondary color hex value"
                   className="flex h-10 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
                 />
               </div>

@@ -12,5 +12,7 @@ var (
 	ErrInvalidInput  = errors.New("invalid input")
 	ErrInvalidRole   = errors.New("invalid role")
 	ErrInvalidStatus = errors.New("invalid status transition")
-	ErrTenantMissing = errors.New("tenant ID missing")
+	ErrTenantMissing   = errors.New("tenant ID missing")
+	ErrAccountLocked   = errors.New("account temporarily locked")
+	ErrVersionConflict = errors.New("version conflict: resource was modified")
 )

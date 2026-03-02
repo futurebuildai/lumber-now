@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from '@/context/AuthContext'
 import { TenantProvider } from '@/context/TenantContext'
+import ErrorBoundary from '@/components/shared/ErrorBoundary'
 import ProtectedRoute from '@/components/shared/ProtectedRoute'
 import AppLayout from '@/components/layout/AppLayout'
 import LoginPage from '@/features/auth/LoginPage'
@@ -31,6 +32,7 @@ function WizardFallback() {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <TenantProvider>
         <AuthProvider>
@@ -74,5 +76,6 @@ export default function App() {
         </AuthProvider>
       </TenantProvider>
     </QueryClientProvider>
+    </ErrorBoundary>
   )
 }

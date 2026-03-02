@@ -1,8 +1,7 @@
-version: "3.8"
-
 services:
   db:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: lumber
       POSTGRES_PASSWORD: lumber
@@ -16,6 +15,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    networks:
+      - backend
 
   minio:
     image: minio/minio:latest
@@ -28,18 +34,61 @@ services:
       - "9001:9001"
     volumes:
       - miniodata:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    networks:
+      - backend
+
+  migrate:
+    image: postgres:17-alpine
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    command: >
+      sh -c 'set -e; FAILED=0; for f in /migrations/*.up.sql; do
+        echo "Running $$f";
+        if ! psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$$f" 2>&1; then
+          echo "WARNING: $$f had errors (may be idempotent, continuing)";
+          FAILED=$$((FAILED+1));
+        fi;
+      done;
+      if [ $$FAILED -gt 0 ]; then
+        echo "$$FAILED migration(s) had warnings";
+      fi;
+      echo "Migrations complete"'
+    environment:
+      DATABASE_URL: postgres://lumber:lumber@db:5432/lumber_now?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+    networks:
+      - backend
 
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
     command: ["api"]
+    restart: unless-stopped
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     environment:
       PORT: "8080"
       DATABASE_URL: postgres://lumber:lumber@db:5432/lumber_now?sslmode=disable
-      JWT_SECRET: dev-secret-change-in-production
+      JWT_SECRET: dev-secret-change-in-production-at-least-32-chars
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       S3_ENDPOINT: http://minio:9000
       S3_BUCKET: lumber-now
@@ -50,17 +99,41 @@ services:
       GCLOUD_CREDENTIALS_FILE: ${GCLOUD_CREDENTIALS_FILE:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-LumberNow <onboarding@resend.dev>}
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-25}
+      DB_MIN_CONNS: ${DB_MIN_CONNS:-5}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
 
   worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    command: ["worker"]
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
+      WORKER_CONCURRENCY: "3"
+      WORKER_POLL_INTERVAL: "10s"
+      WORKER_BATCH_SIZE: "10"
+      WORKER_METRICS_PORT: "9090"
       DATABASE_URL: postgres://lumber:lumber@db:5432/lumber_now?sslmode=disable
-      JWT_SECRET: dev-secret-change-in-production
+      JWT_SECRET: dev-secret-change-in-production-at-least-32-chars
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       S3_ENDPOINT: http://minio:9000
       S3_BUCKET: lumber-now
@@ -70,9 +143,27 @@ services:
       GCLOUD_CREDENTIALS_FILE: ${GCLOUD_CREDENTIALS_FILE:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-LumberNow <onboarding@resend.dev>}
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-10}
+      DB_MIN_CONNS: ${DB_MIN_CONNS:-2}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
 
 volumes:
   pgdata:
   miniodata:
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge

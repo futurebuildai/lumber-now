@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -19,6 +20,9 @@ type Config struct {
 	GCloudCredentialsFile string
 	ResendAPIKey         string
 	EmailFrom            string
+	LogLevel             string
+	DBMaxConns           int32
+	DBMinConns           int32
 }
 
 func LoadConfig() (*Config, error) {
@@ -32,10 +36,13 @@ func LoadConfig() (*Config, error) {
 		S3Region:        getEnv("S3_REGION", "us-east-1"),
 		S3AccessKey:     os.Getenv("S3_ACCESS_KEY"),
 		S3SecretKey:     os.Getenv("S3_SECRET_KEY"),
-		CORSOrigins:          getEnv("CORS_ORIGINS", "*"),
+		CORSOrigins:          getEnv("CORS_ORIGINS", ""),
 		GCloudCredentialsFile: os.Getenv("GCLOUD_CREDENTIALS_FILE"),
 		ResendAPIKey:         os.Getenv("RESEND_API_KEY"),
 		EmailFrom:            getEnv("EMAIL_FROM", "LumberNow <onboarding@resend.dev>"),
+		LogLevel:             getEnv("LOG_LEVEL", "info"),
+		DBMaxConns:           getEnvInt32("DB_MAX_CONNS", 25),
+		DBMinConns:           getEnvInt32("DB_MIN_CONNS", 5),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -44,6 +51,12 @@ func LoadConfig() (*Config, error) {
 	if cfg.JWTSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
 	}
+	if len(cfg.JWTSecret) < 32 {
+		return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	}
+	if cfg.CORSOrigins == "" {
+		return nil, fmt.Errorf("CORS_ORIGINS is required (set to explicit allowed origins)")
+	}
 
 	return cfg, nil
 }
@@ -51,6 +64,15 @@ func LoadConfig() (*Config, error) {
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getEnvInt32(key string, fallback int32) int32 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return int32(n)
+		}
 	}
 	return fallback
 }

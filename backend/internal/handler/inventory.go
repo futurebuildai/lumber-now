@@ -2,9 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/builderwire/lumber-now/backend/internal/domain"
 	"github.com/builderwire/lumber-now/backend/internal/service"
@@ -27,8 +29,8 @@ func (h *InventoryHandler) List(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant required"})
 	}
 
-	limit := int32(c.QueryInt("limit", 50))
-	offset := int32(c.QueryInt("offset", 0))
+	limit := clampLimit(int32(c.QueryInt("limit", 50)))
+	offset := clampOffset(int32(c.QueryInt("offset", 0)))
 
 	search := c.Query("search")
 	if search != "" {
@@ -52,7 +54,9 @@ func (h *InventoryHandler) List(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list inventory"})
 	}
 
-	return c.JSON(fiber.Map{"items": items})
+	total, _ := h.store.Queries.CountInventory(c.Context(), dealerID)
+
+	return c.JSON(fiber.Map{"items": items, "total": total})
 }
 
 type createInventoryBody struct {
@@ -66,10 +70,29 @@ type createInventoryBody struct {
 	Metadata    json.RawMessage `json:"metadata"`
 }
 
+type updateInventoryBody struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Category    string          `json:"category"`
+	Unit        string          `json:"unit"`
+	Price       string          `json:"price"`
+	InStock     bool            `json:"in_stock"`
+	Metadata    json.RawMessage `json:"metadata"`
+	Version     int32           `json:"version"`
+}
+
 func (h *InventoryHandler) Create(c *fiber.Ctx) error {
 	var body createInventoryBody
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	// Validate required fields
+	if body.SKU == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "sku is required"})
+	}
+	if body.Name == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "name is required"})
 	}
 
 	dealerID, _ := domain.DealerIDFromLocals(c.Locals(domain.LocalsDealerID))
@@ -91,7 +114,7 @@ func (h *InventoryHandler) Create(c *fiber.Ctx) error {
 		Metadata:    metadata,
 	})
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "failed to create item"})
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(item)
@@ -103,9 +126,15 @@ func (h *InventoryHandler) Update(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid item ID"})
 	}
 
-	var body createInventoryBody
+	dealerID, _ := domain.DealerIDFromLocals(c.Locals(domain.LocalsDealerID))
+
+	var body updateInventoryBody
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
+	}
+
+	if body.Version <= 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "version is required for optimistic concurrency control"})
 	}
 
 	metadata := body.Metadata
@@ -115,6 +144,7 @@ func (h *InventoryHandler) Update(c *fiber.Ctx) error {
 
 	item, err := h.store.Queries.UpdateInventoryItem(c.Context(), db.UpdateInventoryItemParams{
 		ID:          id,
+		DealerID:    dealerID,
 		Name:        body.Name,
 		Description: body.Description,
 		Category:    body.Category,
@@ -122,8 +152,12 @@ func (h *InventoryHandler) Update(c *fiber.Ctx) error {
 		Price:       body.Price,
 		InStock:     body.InStock,
 		Metadata:    metadata,
+		Version:     body.Version,
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "version conflict: item was modified by another request"})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to update item"})
 	}
 
@@ -136,7 +170,9 @@ func (h *InventoryHandler) Delete(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid item ID"})
 	}
 
-	if err := h.store.Queries.DeleteInventoryItem(c.Context(), id); err != nil {
+	dealerID, _ := domain.DealerIDFromLocals(c.Locals(domain.LocalsDealerID))
+
+	if err := h.store.Queries.DeleteInventoryItem(c.Context(), db.DeleteInventoryItemParams{ID: id, DealerID: dealerID}); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to delete item"})
 	}
 
@@ -162,7 +198,7 @@ func (h *InventoryHandler) ImportCSV(c *fiber.Ctx) error {
 
 	result, err := h.invSvc.ImportCSV(c.Context(), dealerID, f)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "CSV import failed"})
 	}
 
 	return c.JSON(result)

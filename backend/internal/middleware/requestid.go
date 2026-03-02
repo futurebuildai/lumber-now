@@ -15,6 +15,11 @@ func RequestID() fiber.Handler {
 		}
 		c.Locals(domain.LocalsRequestID, rid)
 		c.Set("X-Request-ID", rid)
+
+		// Also store in context.Context so downstream clients can read it
+		ctx := domain.WithRequestID(c.Context(), rid)
+		c.SetUserContext(ctx)
+
 		return c.Next()
 	}
 }

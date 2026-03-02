@@ -10,7 +10,7 @@ interface Props {
 
 export default function ContactInfoStep({ formData, onUpdate, onNext, onBack }: Props) {
   return (
-    <div className="space-y-6">
+    <div role="form" aria-label="Contact information" className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-foreground">Contact Information</h2>
         <p className="text-sm text-muted-foreground mt-1">How customers will reach this dealer.</p>
@@ -18,10 +18,11 @@ export default function ContactInfoStep({ formData, onUpdate, onNext, onBack }: 
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Contact Email</label>
+          <label htmlFor="contact-email" className="text-sm font-medium text-foreground">Contact Email</label>
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <input
+              id="contact-email"
               type="email"
               value={formData.contact_email}
               onChange={(e) => onUpdate({ contact_email: e.target.value })}
@@ -32,10 +33,11 @@ export default function ContactInfoStep({ formData, onUpdate, onNext, onBack }: 
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Contact Phone</label>
+          <label htmlFor="contact-phone" className="text-sm font-medium text-foreground">Contact Phone</label>
           <div className="relative">
-            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <input
+              id="contact-phone"
               type="tel"
               value={formData.contact_phone}
               onChange={(e) => onUpdate({ contact_phone: e.target.value })}
@@ -46,10 +48,11 @@ export default function ContactInfoStep({ formData, onUpdate, onNext, onBack }: 
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Address</label>
+          <label htmlFor="contact-address" className="text-sm font-medium text-foreground">Address</label>
           <div className="relative">
-            <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <textarea
+              id="contact-address"
               value={formData.address}
               onChange={(e) => onUpdate({ address: e.target.value })}
               rows={3}

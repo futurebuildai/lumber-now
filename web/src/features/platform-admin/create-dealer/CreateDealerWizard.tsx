@@ -43,8 +43,8 @@ export default function CreateDealerWizard() {
       <WizardStepper currentStep={state.step} onStepClick={goToStep} />
 
       {createDealer.isError && (
-        <div className="flex items-center gap-2 bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm">
-          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+        <div role="alert" aria-live="assertive" className="flex items-center gap-2 bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
           Failed to create dealer. The slug or subdomain may already be taken.
         </div>
       )}

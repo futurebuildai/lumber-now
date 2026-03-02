@@ -1,24 +1,28 @@
-# Environment
+# Environment and secrets
 .env
 .env.local
+.env.production
+gcloud-credentials.json
+*.pem
+*.key
 
 # Go
 backend/bin/
-backend/internal/store/db/*.go
-!backend/internal/store/db/.gitkeep
+backend/coverage.out
+*.exe
+*.test
 
 # Node
 web/node_modules/
 web/dist/
 web/.vite/
 
-# Flutter
+# Flutter / Dart
 mobile/.dart_tool/
 mobile/.packages
 mobile/build/
 mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
-mobile/pubspec.lock
 
 # IDE
 .idea/
@@ -32,11 +36,12 @@ mobile/pubspec.lock
 Thumbs.db
 
 # Docker
-docker-compose.override.yml
-
-# Google Cloud credentials
-gcloud-credentials.json
-
-# Misc
 *.log
-tmp/
+
+# Terraform / IaC
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Temp
+/tmp/

@@ -113,8 +113,10 @@ class _VoiceRecorderState extends ConsumerState<VoiceRecorder>
                       Haptics.medium();
                       if (isRecording) {
                         await notifier.stopRecording();
-                        if (voiceState.filePath != null) {
-                          widget.onRecordingComplete?.call(voiceState.filePath!);
+                        // Read fresh state after async stop to avoid stale filePath
+                        final updatedState = ref.read(voiceProvider);
+                        if (updatedState.filePath != null) {
+                          widget.onRecordingComplete?.call(updatedState.filePath!);
                         }
                       } else {
                         await notifier.startRecording();

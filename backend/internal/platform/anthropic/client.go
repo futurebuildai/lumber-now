@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/builderwire/lumber-now/backend/internal/domain"
+	"github.com/builderwire/lumber-now/backend/internal/platform/circuitbreaker"
 	"github.com/builderwire/lumber-now/backend/internal/store/db"
 )
 
@@ -18,15 +19,27 @@ const baseURL = "https://api.anthropic.com/v1/messages"
 type Client struct {
 	apiKey     string
 	httpClient *http.Client
+	breaker    *circuitbreaker.Breaker
 }
 
 func NewClient(apiKey string) *Client {
 	return &Client{
 		apiKey: apiKey,
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: 60 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        20,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
 		},
+		breaker: circuitbreaker.New(5, 30*time.Second),
 	}
+}
+
+// BreakerState returns the current circuit breaker state for health reporting.
+func (c *Client) BreakerState() string {
+	return c.breaker.State().String()
 }
 
 type message struct {
@@ -61,7 +74,16 @@ type apiResponse struct {
 	} `json:"content"`
 }
 
-func (c *Client) call(ctx context.Context, model, systemPrompt string, msgs []message) (string, error) {
+func (c *Client) call(ctx context.Context, model, systemPrompt string, msgs []message) (result string, callErr error) {
+	callErr = c.breaker.Execute(func() error {
+		var err error
+		result, err = c.doCall(ctx, model, systemPrompt, msgs)
+		return err
+	})
+	return result, callErr
+}
+
+func (c *Client) doCall(ctx context.Context, model, systemPrompt string, msgs []message) (string, error) {
 	body := apiRequest{
 		Model:     model,
 		MaxTokens: 4096,
@@ -83,19 +105,51 @@ func (c *Client) call(ctx context.Context, model, systemPrompt string, msgs []me
 	req.Header.Set("x-api-key", c.apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("API call: %w", err)
+	if rid := domain.RequestIDFromContext(ctx); rid != "" {
+		req.Header.Set("X-Request-ID", rid)
 	}
-	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read response: %w", err)
+	var resp *http.Response
+	var respBody []byte
+	maxRetries := 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 1s, 2s, 4s
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(backoff):
+			}
+			// Reset request body for retry
+			req.Body = io.NopCloser(bytes.NewReader(jsonBody))
+		}
+
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			if attempt < maxRetries-1 {
+				continue
+			}
+			return "", fmt.Errorf("API call: %w", err)
+		}
+
+		respBody, err = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("read response: %w", err)
+		}
+
+		// Retry on 429 (rate limit) or 5xx (server error)
+		if resp.StatusCode == 429 || resp.StatusCode >= 500 {
+			if attempt < maxRetries-1 {
+				continue
+			}
+		}
+		break
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("API error %d", resp.StatusCode)
 	}
 
 	var apiResp apiResponse
@@ -115,11 +169,21 @@ func buildInventoryContext(inventory []db.Inventory) string {
 		return "No inventory catalog available. Parse items as best as possible."
 	}
 
+	// Cap inventory to prevent exceeding AI context window limits
+	maxItems := 500
+	items := inventory
+	if len(items) > maxItems {
+		items = items[:maxItems]
+	}
+
 	var buf bytes.Buffer
 	buf.WriteString("Available inventory catalog:\n")
-	for _, item := range inventory {
+	for _, item := range items {
 		buf.WriteString(fmt.Sprintf("- SKU: %s | Name: %s | Category: %s | Unit: %s | Price: %s\n",
 			item.Sku, item.Name, item.Category, item.Unit, item.Price))
+	}
+	if len(inventory) > maxItems {
+		buf.WriteString(fmt.Sprintf("\n(Showing %d of %d items. Match against shown items or parse as best as possible.)\n", maxItems, len(inventory)))
 	}
 	return buf.String()
 }

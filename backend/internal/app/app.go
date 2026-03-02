@@ -3,14 +3,17 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/builderwire/lumber-now/backend/internal/handler"
+	"github.com/builderwire/lumber-now/backend/internal/middleware"
 	"github.com/builderwire/lumber-now/backend/internal/platform/anthropic"
 	"github.com/builderwire/lumber-now/backend/internal/platform/email"
 	"github.com/builderwire/lumber-now/backend/internal/platform/gcloud"
@@ -21,9 +24,11 @@ import (
 )
 
 type App struct {
-	fiber  *fiber.App
-	config *Config
-	store  *store.Store
+	fiber   *fiber.App
+	config  *Config
+	store   *store.Store
+	closers []io.Closer
+	reqSvc  *service.RequestService
 }
 
 func New(cfg *Config, s *store.Store) (*App, error) {
@@ -51,6 +56,7 @@ func New(cfg *Config, s *store.Store) (*App, error) {
 	}
 
 	// Optional: Google Cloud Speech-to-Text
+	var closers []io.Closer
 	var transcriber service.Transcriber
 	if cfg.GCloudCredentialsFile != "" {
 		speechClient, err := gcloud.NewSpeechClient(context.Background(), cfg.GCloudCredentialsFile)
@@ -58,6 +64,7 @@ func New(cfg *Config, s *store.Store) (*App, error) {
 			slog.Warn("Google Cloud STT init failed, voice transcription disabled", "error", err)
 		} else {
 			transcriber = speechClient
+			closers = append(closers, speechClient)
 			slog.Info("Google Cloud Speech-to-Text enabled")
 		}
 	}
@@ -72,8 +79,14 @@ func New(cfg *Config, s *store.Store) (*App, error) {
 	reqSvc := service.NewRequestService(s, aiClient, transcriber, emailClient, mediaSvc)
 
 	// Handlers
+	healthHandler := handler.NewHealthHandler(s)
+	healthHandler.RegisterCircuit("ai", aiClient)
+	if s3Client != nil {
+		healthHandler.RegisterCircuit("s3", s3Client)
+	}
+
 	handlers := router.Handlers{
-		Health:    handler.NewHealthHandler(),
+		Health:    healthHandler,
 		Auth:      handler.NewAuthHandler(authSvc, s),
 		Tenant:    handler.NewTenantHandler(s),
 		Request:   handler.NewRequestHandler(reqSvc, s),
@@ -83,12 +96,25 @@ func New(cfg *Config, s *store.Store) (*App, error) {
 		Platform:  handler.NewPlatformHandler(s, authSvc, mediaSvc),
 	}
 
-	router.Setup(f, s, authSvc, handlers, cfg.CORSOrigins)
+	metrics := middleware.NewMetrics()
+	handlers.Request.SetMetrics(metrics)
+	metrics.SetPoolStatsFunc(func() middleware.PoolStats {
+		stat := s.Pool.Stat()
+		return middleware.PoolStats{
+			TotalConns:    stat.TotalConns(),
+			IdleConns:     stat.IdleConns(),
+			AcquiredConns: stat.AcquiredConns(),
+			MaxConns:      stat.MaxConns(),
+		}
+	})
+	router.Setup(f, s, authSvc, handlers, cfg.CORSOrigins, metrics)
 
 	return &App{
-		fiber:  f,
-		config: cfg,
-		store:  s,
+		fiber:   f,
+		config:  cfg,
+		store:   s,
+		closers: closers,
+		reqSvc:  reqSvc,
 	}, nil
 }
 
@@ -100,7 +126,16 @@ func (a *App) Start() error {
 	go func() {
 		<-ctx.Done()
 		slog.Info("shutting down server...")
-		a.fiber.Shutdown()
+		// Wait for in-flight email goroutines
+		if a.reqSvc != nil {
+			a.reqSvc.Close()
+		}
+		for _, c := range a.closers {
+			c.Close()
+		}
+		if err := a.fiber.ShutdownWithTimeout(30 * time.Second); err != nil {
+			slog.Error("server shutdown error", "error", err)
+		}
 	}()
 
 	addr := fmt.Sprintf(":%s", a.config.Port)
@@ -110,10 +145,13 @@ func (a *App) Start() error {
 
 func globalErrorHandler(c *fiber.Ctx, err error) error {
 	code := fiber.StatusInternalServerError
+	message := "internal server error"
 	if e, ok := err.(*fiber.Error); ok {
 		code = e.Code
+		message = e.Message
 	}
+	slog.Error("unhandled error", "status", code, "error", err.Error(), "path", c.Path())
 	return c.Status(code).JSON(fiber.Map{
-		"error": err.Error(),
+		"error": message,
 	})
 }

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"log/slog"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -20,11 +22,19 @@ func NewAdminHandler(s *store.Store) *AdminHandler {
 
 func (h *AdminHandler) ListRequests(c *fiber.Ctx) error {
 	dealerID, _ := domain.DealerIDFromLocals(c.Locals(domain.LocalsDealerID))
-	limit := int32(c.QueryInt("limit", 50))
-	offset := int32(c.QueryInt("offset", 0))
+	limit := clampLimit(int32(c.QueryInt("limit", 50)))
+	offset := clampOffset(int32(c.QueryInt("offset", 0)))
 
 	status := c.Query("status")
 	if status != "" {
+		// Validate status enum
+		validStatuses := map[string]bool{
+			"pending": true, "processing": true, "parsed": true,
+			"confirmed": true, "sent": true, "failed": true,
+		}
+		if !validStatuses[status] {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid status filter"})
+		}
 		requests, err := h.store.Queries.ListRequestsByStatus(c.Context(), db.ListRequestsByStatusParams{
 			DealerID: dealerID,
 			Status:   db.RequestStatus(status),
@@ -34,7 +44,11 @@ func (h *AdminHandler) ListRequests(c *fiber.Ctx) error {
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list requests"})
 		}
-		return c.JSON(fiber.Map{"requests": requests})
+		total, _ := h.store.Queries.CountRequestsByStatus(c.Context(), db.CountRequestsByStatusParams{
+			DealerID: dealerID,
+			Status:   db.RequestStatus(status),
+		})
+		return c.JSON(fiber.Map{"requests": requests, "total": total})
 	}
 
 	requests, err := h.store.Queries.ListRequestsByDealer(c.Context(), db.ListRequestsByDealerParams{
@@ -46,13 +60,32 @@ func (h *AdminHandler) ListRequests(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to list requests"})
 	}
 
-	return c.JSON(fiber.Map{"requests": requests})
+	total, _ := h.store.Queries.CountRequestsByDealer(c.Context(), dealerID)
+
+	return c.JSON(fiber.Map{"requests": requests, "total": total})
+}
+
+func clampLimit(v int32) int32 {
+	if v < 1 {
+		return 1
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
+}
+
+func clampOffset(v int32) int32 {
+	if v < 0 {
+		return 0
+	}
+	return v
 }
 
 func (h *AdminHandler) ListUsers(c *fiber.Ctx) error {
 	dealerID, _ := domain.DealerIDFromLocals(c.Locals(domain.LocalsDealerID))
-	limit := int32(c.QueryInt("limit", 50))
-	offset := int32(c.QueryInt("offset", 0))
+	limit := clampLimit(int32(c.QueryInt("limit", 50)))
+	offset := clampOffset(int32(c.QueryInt("offset", 0)))
 
 	role := c.Query("role")
 	if role != "" {
@@ -84,6 +117,8 @@ func (h *AdminHandler) AssignContractorToRep(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid user ID"})
 	}
 
+	dealerID, _ := domain.DealerIDFromLocals(c.Locals(domain.LocalsDealerID))
+
 	var body struct {
 		RepID string `json:"rep_id"`
 	}
@@ -96,8 +131,9 @@ func (h *AdminHandler) AssignContractorToRep(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid rep ID"})
 	}
 
-	err = h.store.Queries.AssignContractorToRep(c.Context(), db.AssignContractorToRepParams{
+	err = h.store.Queries.AssignContractorToRepByDealer(c.Context(), db.AssignContractorToRepByDealerParams{
 		ID:            contractorID,
+		DealerID:      dealerID,
 		AssignedRepID: pgtype.UUID{Bytes: repID, Valid: true},
 	})
 	if err != nil {
@@ -108,6 +144,8 @@ func (h *AdminHandler) AssignContractorToRep(c *fiber.Ctx) error {
 }
 
 func (h *AdminHandler) UpdateRouting(c *fiber.Ctx) error {
+	dealerID, _ := domain.DealerIDFromLocals(c.Locals(domain.LocalsDealerID))
+
 	var body struct {
 		Assignments []struct {
 			ContractorID string `json:"contractor_id"`
@@ -118,21 +156,37 @@ func (h *AdminHandler) UpdateRouting(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
-	for _, a := range body.Assignments {
-		contractorID, err := uuid.Parse(a.ContractorID)
-		if err != nil {
-			continue
+	// Execute all assignments within a single transaction
+	var failed int
+	if err := h.store.WithTx(c.Context(), func(qtx *db.Queries) error {
+		for _, a := range body.Assignments {
+			contractorID, err := uuid.Parse(a.ContractorID)
+			if err != nil {
+				failed++
+				continue
+			}
+			repID, err := uuid.Parse(a.RepID)
+			if err != nil {
+				failed++
+				continue
+			}
+			if err := qtx.AssignContractorToRepByDealer(c.Context(), db.AssignContractorToRepByDealerParams{
+				ID:            contractorID,
+				DealerID:      dealerID,
+				AssignedRepID: pgtype.UUID{Bytes: repID, Valid: true},
+			}); err != nil {
+				slog.Error("failed to assign contractor", "contractor_id", contractorID, "error", err)
+				failed++
+			}
 		}
-		repID, err := uuid.Parse(a.RepID)
-		if err != nil {
-			continue
-		}
-		h.store.Queries.AssignContractorToRep(c.Context(), db.AssignContractorToRepParams{
-			ID:            contractorID,
-			AssignedRepID: pgtype.UUID{Bytes: repID, Valid: true},
-		})
+		return nil
+	}); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "routing update failed"})
 	}
 
+	if failed > 0 {
+		return c.Status(fiber.StatusMultiStatus).JSON(fiber.Map{"status": "partial", "failed": failed})
+	}
 	return c.JSON(fiber.Map{"status": "updated"})
 }
 

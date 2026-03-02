@@ -43,6 +43,8 @@ export default function AppSidebar() {
 
   return (
     <aside
+      role="navigation"
+      aria-label="Main sidebar navigation"
       className={cn(
         'flex flex-col h-screen bg-sidebar-background border-r border-sidebar-border transition-all duration-200',
         collapsed ? 'w-16' : 'w-64'
@@ -72,7 +74,7 @@ export default function AppSidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto" aria-label="Sidebar links">
         {navItems
           .filter(item => !item.roles || (user && item.roles.includes(user.role)))
           .map(item => {

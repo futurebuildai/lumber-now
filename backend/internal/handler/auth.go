@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"errors"
+	"log/slog"
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
@@ -48,9 +52,15 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		Password: req.Password,
 	})
 	if err != nil {
+		if errors.Is(err, domain.ErrAccountLocked) {
+			slog.Warn("login_locked", "email", req.Email, "dealer_id", dealerID, "ip", c.IP())
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{"error": "account temporarily locked due to too many failed attempts"})
+		}
+		slog.Warn("login_failed", "email", req.Email, "dealer_id", dealerID, "ip", c.IP())
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
 	}
 
+	slog.Info("login_success", "email", req.Email, "dealer_id", dealerID, "ip", c.IP())
 	return c.JSON(tokens)
 }
 
@@ -65,23 +75,22 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "tenant required"})
 	}
 
-	role := domain.Role(req.Role)
-	if req.Role == "" {
-		role = domain.RoleContractor
-	}
-
+	// Public self-registration is restricted to contractor role only.
+	// Other roles must be created by an admin via the admin or platform endpoints.
 	user, err := h.authSvc.Register(c.Context(), service.RegisterInput{
 		DealerID: dealerID,
 		Email:    req.Email,
 		Password: req.Password,
 		FullName: req.FullName,
 		Phone:    req.Phone,
-		Role:     role,
+		Role:     domain.RoleContractor,
 	})
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		slog.Warn("register_failed", "email", req.Email, "dealer_id", dealerID, "ip", c.IP())
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "registration failed"})
 	}
 
+	slog.Info("register_success", "user_id", user.ID, "email", user.Email, "dealer_id", dealerID)
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"id":        user.ID,
 		"email":     user.Email,
@@ -134,4 +143,22 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(tokens)
+}
+
+func (h *AuthHandler) Logout(c *fiber.Ctx) error {
+	// Blacklist the current access token from the Authorization header.
+	authHeader := c.Get("Authorization")
+	if parts := strings.SplitN(authHeader, " ", 2); len(parts) == 2 {
+		h.authSvc.RevokeToken(parts[1])
+	}
+
+	// Optionally blacklist the refresh token if provided in the body.
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := c.BodyParser(&body); err == nil && body.RefreshToken != "" {
+		h.authSvc.RevokeToken(body.RefreshToken)
+	}
+
+	return c.JSON(fiber.Map{"message": "logged out"})
 }

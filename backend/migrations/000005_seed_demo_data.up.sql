@@ -11,8 +11,7 @@ VALUES (
     true
 ) ON CONFLICT (id) DO NOTHING;
 
--- Seed platform admin: colton@futurebuild.ai
--- Password: LumberNow2024!
+-- Seed platform admin (DEV ONLY - do not run in production)
 INSERT INTO users (id, dealer_id, email, password_hash, full_name, role, active)
 VALUES (
     '22222222-2222-2222-2222-222222222222',

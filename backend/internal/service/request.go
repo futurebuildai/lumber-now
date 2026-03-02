@@ -3,11 +3,15 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/builderwire/lumber-now/backend/internal/domain"
@@ -21,6 +25,7 @@ type RequestService struct {
 	transcriber Transcriber
 	emailClient EmailSender
 	mediaSvc    *MediaService
+	emailWg     sync.WaitGroup
 }
 
 type AIParser interface {
@@ -45,6 +50,19 @@ func NewRequestService(s *store.Store, ai AIParser, transcriber Transcriber, ema
 		emailClient: emailClient,
 		mediaSvc:    mediaSvc,
 	}
+}
+
+// Close waits for all in-flight email goroutines to complete.
+func (s *RequestService) Close() {
+	s.emailWg.Wait()
+}
+
+// wrapVersionErr converts pgx.ErrNoRows from versioned queries into domain.ErrVersionConflict.
+func wrapVersionErr(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrVersionConflict
+	}
+	return err
 }
 
 type CreateRequestInput struct {
@@ -88,23 +106,26 @@ func (s *RequestService) Process(ctx context.Context, requestID uuid.UUID) (*db.
 		return nil, domain.ErrNotFound
 	}
 
-	if req.Status != db.RequestStatusPending {
+	if req.Status != db.RequestStatusPending && req.Status != db.RequestStatusProcessing {
 		return nil, domain.ErrInvalidStatus
 	}
 
-	// Set to processing
-	req, err = s.store.Queries.UpdateRequestStatus(ctx, db.UpdateRequestStatusParams{
-		ID:     requestID,
-		Status: db.RequestStatusProcessing,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("update status: %w", err)
+	// Set to processing if not already (worker pre-claims via ClaimPendingRequests)
+	if req.Status == db.RequestStatusPending {
+		req, err = s.store.Queries.UpdateRequestStatusVersioned(ctx, db.UpdateRequestStatusVersionedParams{
+			ID:      requestID,
+			Status:  db.RequestStatusProcessing,
+			Version: req.Version,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("update status: %w", wrapVersionErr(err))
+		}
 	}
 
 	// Get dealer inventory for SKU matching
 	inventory, err := s.store.Queries.ListInventory(ctx, db.ListInventoryParams{
 		DealerID: req.DealerID,
-		Limit:    10000,
+		Limit:    500,
 		Offset:   0,
 	})
 	if err != nil {
@@ -135,26 +156,34 @@ func (s *RequestService) Process(ctx context.Context, requestID uuid.UUID) (*db.
 		}
 		defer audioReader.Close()
 
-		transcript, tErr := s.transcriber.Transcribe(ctx, audioReader)
+		// Limit audio to 25MB to prevent memory exhaustion
+		const maxAudioSize = 25 * 1024 * 1024
+		limitedReader := io.LimitReader(audioReader, maxAudioSize)
+
+		transcript, tErr := s.transcriber.Transcribe(ctx, limitedReader)
 		if tErr != nil {
 			parseErr = fmt.Errorf("transcribe audio: %w", tErr)
 			break
 		}
 
 		// Store the transcript
-		s.store.Queries.UpdateRequestRawText(ctx, db.UpdateRequestRawTextParams{
+		if err := s.store.Queries.UpdateRequestRawText(ctx, db.UpdateRequestRawTextParams{
 			ID:      requestID,
 			RawText: transcript,
-		})
+		}); err != nil {
+			slog.Error("failed to store transcript", "id", requestID, "error", err)
+		}
 
 		items, confidence, parseErr = s.aiClient.ParseText(ctx, transcript, inventory)
 	}
 
 	if parseErr != nil {
-		s.store.Queries.UpdateRequestStatus(ctx, db.UpdateRequestStatusParams{
-			ID:     requestID,
-			Status: db.RequestStatusFailed,
-		})
+		if statusErr := s.store.Queries.SetRequestFailed(ctx, db.SetRequestFailedParams{
+			ID:        requestID,
+			LastError: parseErr.Error(),
+		}); statusErr != nil {
+			slog.Error("failed to set request status to failed", "id", requestID, "error", statusErr)
+		}
 		return nil, fmt.Errorf("AI parse: %w", parseErr)
 	}
 
@@ -163,16 +192,17 @@ func (s *RequestService) Process(ctx context.Context, requestID uuid.UUID) (*db.
 		return nil, fmt.Errorf("marshal items: %w", err)
 	}
 
-	req, err = s.store.Queries.UpdateRequestStructuredItems(ctx, db.UpdateRequestStructuredItemsParams{
+	updated, err := s.store.Queries.UpdateRequestStructuredItemsVersioned(ctx, db.UpdateRequestStructuredItemsVersionedParams{
 		ID:              requestID,
 		StructuredItems: itemsJSON,
 		AiConfidence:    fmt.Sprintf("%.4f", confidence),
+		Version:         req.Version,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("update items: %w", err)
+		return nil, fmt.Errorf("update items: %w", wrapVersionErr(err))
 	}
 
-	return &req, nil
+	return &updated, nil
 }
 
 func (s *RequestService) Confirm(ctx context.Context, requestID uuid.UUID, items json.RawMessage) (*db.Request, error) {
@@ -185,26 +215,38 @@ func (s *RequestService) Confirm(ctx context.Context, requestID uuid.UUID, items
 		return nil, domain.ErrInvalidStatus
 	}
 
-	if items != nil {
-		req, err = s.store.Queries.UpdateRequestStructuredItems(ctx, db.UpdateRequestStructuredItemsParams{
-			ID:              requestID,
-			StructuredItems: items,
-			AiConfidence:    req.AiConfidence,
+	// Use a transaction to atomically update items + status with optimistic concurrency
+	var result db.Request
+	currentVersion := req.Version
+	if txErr := s.store.WithTx(ctx, func(qtx *db.Queries) error {
+		if items != nil {
+			updated, err := qtx.UpdateRequestStructuredItemsVersioned(ctx, db.UpdateRequestStructuredItemsVersionedParams{
+				ID:              requestID,
+				StructuredItems: items,
+				AiConfidence:    req.AiConfidence,
+				Version:         currentVersion,
+			})
+			if err != nil {
+				return fmt.Errorf("update items: %w", wrapVersionErr(err))
+			}
+			currentVersion = updated.Version
+		}
+
+		r, err := qtx.UpdateRequestStatusVersioned(ctx, db.UpdateRequestStatusVersionedParams{
+			ID:      requestID,
+			Status:  db.RequestStatusConfirmed,
+			Version: currentVersion,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("update items: %w", err)
+			return fmt.Errorf("confirm: %w", wrapVersionErr(err))
 		}
+		result = r
+		return nil
+	}); txErr != nil {
+		return nil, txErr
 	}
 
-	req, err = s.store.Queries.UpdateRequestStatus(ctx, db.UpdateRequestStatusParams{
-		ID:     requestID,
-		Status: db.RequestStatusConfirmed,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("confirm: %w", err)
-	}
-
-	return &req, nil
+	return &result, nil
 }
 
 func (s *RequestService) Send(ctx context.Context, requestID uuid.UUID) (*db.Request, error) {
@@ -217,36 +259,55 @@ func (s *RequestService) Send(ctx context.Context, requestID uuid.UUID) (*db.Req
 		return nil, domain.ErrInvalidStatus
 	}
 
-	req, err = s.store.Queries.UpdateRequestStatus(ctx, db.UpdateRequestStatusParams{
-		ID:     requestID,
-		Status: db.RequestStatusSent,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("send: %w", err)
+	// Use a transaction for status update with optimistic concurrency
+	var result db.Request
+	if txErr := s.store.WithTx(ctx, func(qtx *db.Queries) error {
+		r, err := qtx.UpdateRequestStatusVersioned(ctx, db.UpdateRequestStatusVersionedParams{
+			ID:      requestID,
+			Status:  db.RequestStatusSent,
+			Version: req.Version,
+		})
+		if err != nil {
+			return fmt.Errorf("send: %w", wrapVersionErr(err))
+		}
+		result = r
+		return nil
+	}); txErr != nil {
+		return nil, txErr
 	}
 
-	// Send order confirmation email if configured
+	// Send order confirmation email asynchronously (tracked for graceful shutdown)
 	if s.emailClient != nil {
-		dealer, dErr := s.store.Queries.GetDealer(ctx, req.DealerID)
-		if dErr != nil {
-			slog.Warn("failed to get dealer for email", "error", dErr)
-			return &req, nil
-		}
+		s.emailWg.Add(1)
+		go func() {
+			defer s.emailWg.Done()
 
-		if dealer.ContactEmail != "" {
-			var structuredItems []domain.StructuredItem
-			if len(req.StructuredItems) > 0 {
-				if jErr := json.Unmarshal(req.StructuredItems, &structuredItems); jErr != nil {
-					slog.Warn("failed to unmarshal items for email", "error", jErr)
-					return &req, nil
+			emailCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			dealer, dErr := s.store.Queries.GetDealer(emailCtx, result.DealerID)
+			if dErr != nil {
+				slog.Warn("failed to get dealer for email", "error", dErr, "request_id", requestID)
+				return
+			}
+
+			if dealer.ContactEmail != "" {
+				var structuredItems []domain.StructuredItem
+				if len(result.StructuredItems) > 0 {
+					if jErr := json.Unmarshal(result.StructuredItems, &structuredItems); jErr != nil {
+						slog.Warn("failed to unmarshal items for email", "error", jErr, "request_id", requestID)
+						return
+					}
+				}
+
+				if eErr := s.emailClient.SendOrderConfirmation(emailCtx, dealer.ContactEmail, dealer.Name, structuredItems); eErr != nil {
+					slog.Error("failed to send order confirmation email", "error", eErr, "request_id", requestID)
+				} else {
+					slog.Info("order confirmation email sent", "request_id", requestID, "to", dealer.ContactEmail)
 				}
 			}
-
-			if eErr := s.emailClient.SendOrderConfirmation(ctx, dealer.ContactEmail, dealer.Name, structuredItems); eErr != nil {
-				slog.Warn("failed to send order confirmation email", "error", eErr)
-			}
-		}
+		}()
 	}
 
-	return &req, nil
+	return &result, nil
 }

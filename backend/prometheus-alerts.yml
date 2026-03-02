@@ -1,0 +1,88 @@
+# Prometheus alerting rules for LumberNow
+# Load via: rule_files: ["prometheus-alerts.yml"] in prometheus.yml
+
+groups:
+  - name: lumber_now_api
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_errors_total[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API error rate above 5%"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: HighLatencyP99
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p99 latency above 5s"
+          description: "99th percentile latency is {{ $value }}s."
+
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state{state="open"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker {{ $labels.name }} is OPEN"
+          description: "The {{ $labels.name }} circuit breaker has tripped, blocking requests to the dependency."
+
+      - alert: DatabasePoolExhausted
+        expr: db_pool_acquired_conns / db_pool_max_conns > 0.9
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection pool >90% utilized"
+          description: "{{ $value | humanizePercentage }} of pool connections in use."
+
+      - alert: HealthCheckFailing
+        expr: up{job="lumber-now-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LumberNow API is down"
+          description: "Health check has been failing for more than 1 minute."
+
+  - name: lumber_now_worker
+    rules:
+      - alert: WorkerHighFailureRate
+        expr: rate(worker_requests_failed_total[5m]) / (rate(worker_requests_processed_total[5m]) + rate(worker_requests_failed_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker failure rate above 10%"
+          description: "{{ $value | humanizePercentage }} of worker requests are failing."
+
+      - alert: WorkerPanics
+        expr: increase(worker_panics_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker experienced a panic"
+          description: "{{ $value }} panics in the last 5 minutes."
+
+      - alert: WorkerBacklogGrowing
+        expr: increase(worker_ticks_skipped_total[15m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker backlog growing (ticks being skipped)"
+          description: "{{ $value }} ticks skipped in 15 minutes — concurrency may be insufficient."
+
+      - alert: DeadLetterRequests
+        expr: increase(worker_requests_retried_total[1h]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High retry rate — possible dead-letter accumulation"
+          description: "{{ $value }} retries in the last hour."

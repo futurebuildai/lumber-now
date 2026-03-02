@@ -8,7 +8,7 @@ interface Props {
 
 export default function WizardStepper({ currentStep, onStepClick }: Props) {
   return (
-    <nav className="flex items-center justify-between mb-8">
+    <nav aria-label="Dealer creation wizard steps" className="flex items-center justify-between mb-8">
       {WIZARD_STEPS.map((step, index) => {
         const isCompleted = index < currentStep
         const isCurrent = index === currentStep
@@ -20,6 +20,8 @@ export default function WizardStepper({ currentStep, onStepClick }: Props) {
               onClick={() => isCompleted ? onStepClick(index) : undefined}
               disabled={!isCompleted}
               className="flex items-center gap-3 group"
+              aria-current={isCurrent ? 'step' : undefined}
+              aria-label={`Step ${index + 1}: ${step.label}${isCompleted ? ' (completed)' : isCurrent ? ' (current)' : ''}`}
             >
               <div
                 className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-medium transition-colors ${

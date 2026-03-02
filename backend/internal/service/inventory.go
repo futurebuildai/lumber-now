@@ -51,6 +51,13 @@ func (s *InventoryService) ImportCSV(ctx context.Context, dealerID uuid.UUID, re
 		}
 	}
 
+	// Parse all records first, then import in a transaction
+	type parsedRow struct {
+		lineNum int
+		params  db.UpsertInventoryItemParams
+	}
+
+	var rows []parsedRow
 	result := &CSVImportResult{}
 	lineNum := 1
 
@@ -82,28 +89,39 @@ func (s *InventoryService) ImportCSV(ctx context.Context, dealerID uuid.UUID, re
 		}
 
 		inStock := true
-		if s := getCol(record, colMap, "in_stock"); s != "" {
-			inStock = strings.ToLower(s) == "true" || s == "1" || strings.ToLower(s) == "yes"
+		if sv := getCol(record, colMap, "in_stock"); sv != "" {
+			inStock = strings.ToLower(sv) == "true" || sv == "1" || strings.ToLower(sv) == "yes"
 		}
 
-		_, err = s.store.Queries.UpsertInventoryItem(ctx, db.UpsertInventoryItemParams{
-			DealerID:    dealerID,
-			Sku:         sku,
-			Name:        name,
-			Description: getCol(record, colMap, "description"),
-			Category:    getCol(record, colMap, "category"),
-			Unit:        orDefault(getCol(record, colMap, "unit"), "EA"),
-			Price:       price,
-			InStock:     inStock,
-			Metadata:    json.RawMessage("{}"),
+		rows = append(rows, parsedRow{
+			lineNum: lineNum,
+			params: db.UpsertInventoryItemParams{
+				DealerID:    dealerID,
+				Sku:         sku,
+				Name:        name,
+				Description: getCol(record, colMap, "description"),
+				Category:    getCol(record, colMap, "category"),
+				Unit:        orDefault(getCol(record, colMap, "unit"), "EA"),
+				Price:       price,
+				InStock:     inStock,
+				Metadata:    json.RawMessage("{}"),
+			},
 		})
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("line %d: %v", lineNum, err))
-			result.Skipped++
-			continue
-		}
+	}
 
-		result.Imported++
+	// Import all rows within a single transaction
+	if err := s.store.WithTx(ctx, func(qtx *db.Queries) error {
+		for _, row := range rows {
+			if _, err := qtx.UpsertInventoryItem(ctx, row.params); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("line %d: import failed", row.lineNum))
+				result.Skipped++
+				continue
+			}
+			result.Imported++
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("import transaction: %w", err)
 	}
 
 	return result, nil

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 class AppColors {
@@ -160,5 +162,46 @@ class AppColors {
     hex = hex.replaceFirst('#', '');
     if (hex.length == 6) hex = 'FF$hex';
     return Color(int.parse(hex, radix: 16));
+  }
+
+  /// Linearizes an sRGB channel value per WCAG 2.1 specification.
+  static double _srgbToLinear(double c) {
+    return c <= 0.03928 ? c / 12.92 : math.pow((c + 0.055) / 1.055, 2.4).toDouble();
+  }
+
+  /// Calculates the WCAG 2.1 relative luminance of a color.
+  /// See: https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
+  static double relativeLuminance(Color color) {
+    final r = _srgbToLinear(color.red / 255.0);
+    final g = _srgbToLinear(color.green / 255.0);
+    final b = _srgbToLinear(color.blue / 255.0);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  /// Calculates the WCAG 2.1 contrast ratio between two colors.
+  /// Returns a value between 1.0 (no contrast) and 21.0 (maximum contrast).
+  /// WCAG AA requires >= 4.5 for normal text, >= 3.0 for large text.
+  /// WCAG AAA requires >= 7.0 for normal text, >= 4.5 for large text.
+  static double contrastRatio(Color foreground, Color background) {
+    final lumFg = relativeLuminance(foreground);
+    final lumBg = relativeLuminance(background);
+    final lighter = lumFg > lumBg ? lumFg : lumBg;
+    final darker = lumFg > lumBg ? lumBg : lumFg;
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  /// Checks if two colors meet the WCAG AA contrast requirement for normal text (>= 4.5:1).
+  static bool meetsWcagAA(Color foreground, Color background) {
+    return contrastRatio(foreground, background) >= 4.5;
+  }
+
+  /// Checks if two colors meet the WCAG AAA contrast requirement for normal text (>= 7.0:1).
+  static bool meetsWcagAAA(Color foreground, Color background) {
+    return contrastRatio(foreground, background) >= 7.0;
+  }
+
+  /// Checks if two colors meet the WCAG AA contrast requirement for large text (>= 3.0:1).
+  static bool meetsWcagAALargeText(Color foreground, Color background) {
+    return contrastRatio(foreground, background) >= 3.0;
   }
 }

@@ -34,7 +34,7 @@ export default function ReviewStep({ formData, onBack, onSubmit, onEditStep, isS
               <Building2 className="h-4 w-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">Basic Info</h3>
             </div>
-            <button onClick={() => onEditStep(0)} className="text-xs font-medium text-primary hover:text-primary/80">
+            <button onClick={() => onEditStep(0)} className="text-xs font-medium text-primary hover:text-primary/80" aria-label="Edit basic info">
               Edit
             </button>
           </div>
@@ -52,7 +52,7 @@ export default function ReviewStep({ formData, onBack, onSubmit, onEditStep, isS
               <Palette className="h-4 w-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">Branding</h3>
             </div>
-            <button onClick={() => onEditStep(1)} className="text-xs font-medium text-primary hover:text-primary/80">
+            <button onClick={() => onEditStep(1)} className="text-xs font-medium text-primary hover:text-primary/80" aria-label="Edit branding">
               Edit
             </button>
           </div>
@@ -80,7 +80,7 @@ export default function ReviewStep({ formData, onBack, onSubmit, onEditStep, isS
               <Globe className="h-4 w-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold text-foreground">Contact Info</h3>
             </div>
-            <button onClick={() => onEditStep(2)} className="text-xs font-medium text-primary hover:text-primary/80">
+            <button onClick={() => onEditStep(2)} className="text-xs font-medium text-primary hover:text-primary/80" aria-label="Edit contact info">
               Edit
             </button>
           </div>

@@ -11,7 +11,10 @@ class LoadingOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors;
-    return Container(
+    return Semantics(
+      label: message ?? 'Loading',
+      liveRegion: true,
+      child: Container(
       color: Colors.black.withValues(alpha: 0.4),
       child: Center(
         child: Container(
@@ -49,6 +52,7 @@ class LoadingOverlay extends StatelessWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }
