@@ -2,9 +2,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../models/pagination.dart';
 import '../services/api_client.dart';
+import '../services/media_service.dart';
 import '../utils/api_error.dart';
 import 'package:dio/dio.dart';
 import 'auth_providers.dart';
+
+final mediaServiceProvider = Provider<MediaService>((ref) {
+  return MediaService(ref.read(apiClientProvider));
+});
 
 final requestsProvider = FutureProvider<List<MaterialRequest>>((ref) async {
   final api = ref.read(apiClientProvider);

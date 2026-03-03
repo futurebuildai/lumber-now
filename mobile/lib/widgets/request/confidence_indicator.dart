@@ -28,7 +28,7 @@ class _ConfidenceIndicatorState extends State<ConfidenceIndicator>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: Durations.slower);
+    _controller = AnimationController(vsync: this, duration: AppDurations.slower);
     _animation = Tween<double>(begin: 0, end: widget.confidence).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
     );

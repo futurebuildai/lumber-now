@@ -6,7 +6,7 @@ CustomTransitionPage<void> fadeThrough(GoRouterState state, Widget child) {
   return CustomTransitionPage(
     key: state.pageKey,
     child: child,
-    transitionDuration: Durations.normal,
+    transitionDuration: AppDurations.normal,
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
       return FadeTransition(
         opacity: CurvedAnimation(parent: animation, curve: Curves.easeInOut),
@@ -20,7 +20,7 @@ CustomTransitionPage<void> slideUp(GoRouterState state, Widget child) {
   return CustomTransitionPage(
     key: state.pageKey,
     child: child,
-    transitionDuration: Durations.normal,
+    transitionDuration: AppDurations.normal,
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
       final curve = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
       return SlideTransition(

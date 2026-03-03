@@ -35,7 +35,7 @@ abstract class Elevations {
   static const double xl = 16;
 }
 
-abstract class Durations {
+abstract class AppDurations {
   static const Duration instant = Duration(milliseconds: 100);
   static const Duration fast = Duration(milliseconds: 200);
   static const Duration normal = Duration(milliseconds: 300);

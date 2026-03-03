@@ -30,7 +30,7 @@ class _SuccessAnimationState extends State<SuccessAnimation>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: Durations.slow,
+      duration: AppDurations.slow,
     );
     _scaleAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _controller, curve: Curves.elasticOut),

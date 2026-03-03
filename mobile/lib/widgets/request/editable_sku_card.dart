@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../models/models.dart';
+import '../../theme/app_colors.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/app_typography.dart';
 import '../../theme/design_tokens.dart';
@@ -161,7 +162,7 @@ class _EditableSKUCardState extends State<EditableSKUCard> {
                     crossFadeState: _expanded
                         ? CrossFadeState.showSecond
                         : CrossFadeState.showFirst,
-                    duration: Durations.fast,
+                    duration: AppDurations.fast,
                   ),
                 ],
               ),

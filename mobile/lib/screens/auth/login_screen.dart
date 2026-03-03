@@ -35,7 +35,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: Durations.slower,
+      duration: AppDurations.slower,
     );
     _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _animController, curve: Curves.easeIn),
