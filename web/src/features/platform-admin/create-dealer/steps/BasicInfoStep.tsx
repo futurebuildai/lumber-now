@@ -4,6 +4,7 @@ interface Props {
   formData: WizardFormData
   onUpdate: (data: Partial<WizardFormData>) => void
   onNext: () => void
+  readOnly?: boolean
 }
 
 function slugify(text: string): string {
@@ -13,7 +14,7 @@ function slugify(text: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
-export default function BasicInfoStep({ formData, onUpdate, onNext }: Props) {
+export default function BasicInfoStep({ formData, onUpdate, onNext, readOnly }: Props) {
   const handleNameChange = (name: string) => {
     const slug = slugify(name)
     onUpdate({
@@ -57,7 +58,9 @@ export default function BasicInfoStep({ formData, onUpdate, onNext }: Props) {
               onChange={(e) => onUpdate({ slug: e.target.value, subdomain: `${e.target.value}.lumbernow.com` })}
               placeholder="acme-lumber"
               aria-required="true"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              readOnly={readOnly}
+              aria-readonly={readOnly || undefined}
+              className={`flex h-10 w-full rounded-md border border-input px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${readOnly ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-background'}`}
             />
           </div>
           <div className="space-y-2">

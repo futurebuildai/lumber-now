@@ -1,0 +1,30 @@
+default_platform(:android)
+
+platform :android do
+  desc "Build release AAB for Play Store"
+  lane :build_aab do
+    Dir.chdir("../..") do
+      sh("flutter", "build", "appbundle", "--release",
+        "--dart-define=API_BASE_URL=#{ENV['API_BASE_URL']}",
+        "--dart-define=TENANT_SLUG=#{ENV['TENANT_SLUG']}",
+        "--dart-define=PRIMARY_COLOR=#{ENV['PRIMARY_COLOR']}",
+        "--dart-define=SECONDARY_COLOR=#{ENV['SECONDARY_COLOR']}",
+        "--dart-define=APP_NAME=#{ENV['APP_NAME']}")
+    end
+  end
+
+  desc "Deploy AAB to Play Store internal track"
+  lane :deploy do
+    build_aab
+
+    upload_to_play_store(
+      track: "internal",
+      aab: "../build/app/outputs/bundle/release/app-release.aab",
+      json_key: ENV["PLAY_STORE_JSON_KEY_PATH"] || "play-store-key.json",
+      package_name: ENV["PACKAGE_NAME"] || "com.lumbernow.app",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

@@ -21,6 +21,7 @@ export interface WizardState {
   formData: WizardFormData
   isSubmitting: boolean
   createdDealerId: string | null
+  mode: 'create' | 'edit'
 }
 
 export type WizardAction =
@@ -30,6 +31,7 @@ export type WizardAction =
   | { type: 'SUBMIT_SUCCESS'; dealerId: string }
   | { type: 'SUBMIT_ERROR' }
   | { type: 'RESET' }
+  | { type: 'INIT_EDIT'; data: WizardFormData }
 
 export const WIZARD_STEPS = [
   { label: 'Basic Info', description: 'Name and slug' },

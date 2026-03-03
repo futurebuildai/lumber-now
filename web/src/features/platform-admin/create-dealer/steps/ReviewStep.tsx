@@ -7,6 +7,7 @@ interface Props {
   onSubmit: () => void
   onEditStep: (step: number) => void
   isSubmitting: boolean
+  mode?: 'create' | 'edit'
 }
 
 function ReviewRow({ label, value }: { label: string; value: string }) {
@@ -18,12 +19,12 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-export default function ReviewStep({ formData, onBack, onSubmit, onEditStep, isSubmitting }: Props) {
+export default function ReviewStep({ formData, onBack, onSubmit, onEditStep, isSubmitting, mode = 'create' }: Props) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-foreground">Review & Create</h2>
-        <p className="text-sm text-muted-foreground mt-1">Verify the dealer details before creating.</p>
+        <h2 className="text-lg font-semibold text-foreground">{mode === 'edit' ? 'Review & Save' : 'Review & Create'}</h2>
+        <p className="text-sm text-muted-foreground mt-1">{mode === 'edit' ? 'Verify the dealer details before saving.' : 'Verify the dealer details before creating.'}</p>
       </div>
 
       <div className="space-y-4">
@@ -115,7 +116,10 @@ export default function ReviewStep({ formData, onBack, onSubmit, onEditStep, isS
           className="inline-flex items-center gap-2 rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 transition-colors"
         >
           {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-          {isSubmitting ? 'Creating...' : 'Create Dealer'}
+          {isSubmitting
+            ? (mode === 'edit' ? 'Saving...' : 'Creating...')
+            : (mode === 'edit' ? 'Save Changes' : 'Create Dealer')
+          }
         </button>
       </div>
     </div>

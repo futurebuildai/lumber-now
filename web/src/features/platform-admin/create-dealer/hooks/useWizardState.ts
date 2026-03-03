@@ -1,4 +1,4 @@
-import { useReducer } from 'react'
+import { useCallback, useReducer } from 'react'
 import type { WizardState, WizardAction, WizardFormData } from '../types'
 import { INITIAL_FORM_DATA } from '../types'
 
@@ -7,6 +7,7 @@ const initialState: WizardState = {
   formData: INITIAL_FORM_DATA,
   isSubmitting: false,
   createdDealerId: null,
+  mode: 'create',
 }
 
 export function wizardReducer(state: WizardState, action: WizardAction): WizardState {
@@ -23,6 +24,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       return { ...state, isSubmitting: false }
     case 'RESET':
       return initialState
+    case 'INIT_EDIT':
+      return { ...state, formData: action.data, mode: 'edit' }
     default:
       return state
   }
@@ -39,6 +42,7 @@ export function useWizardState() {
   const submitSuccess = (dealerId: string) => dispatch({ type: 'SUBMIT_SUCCESS', dealerId })
   const submitError = () => dispatch({ type: 'SUBMIT_ERROR' })
   const reset = () => dispatch({ type: 'RESET' })
+  const initEdit = useCallback((data: WizardFormData) => dispatch({ type: 'INIT_EDIT', data }), [])
 
   return {
     state,
@@ -50,5 +54,6 @@ export function useWizardState() {
     submitSuccess,
     submitError,
     reset,
+    initEdit,
   }
 }

@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -22,6 +26,20 @@ type PlatformHandler struct {
 
 func NewPlatformHandler(s *store.Store, authSvc *service.AuthService, mediaSvc *service.MediaService) *PlatformHandler {
 	return &PlatformHandler{store: s, authSvc: authSvc, mediaSvc: mediaSvc}
+}
+
+func (h *PlatformHandler) GetDealer(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid dealer ID"})
+	}
+
+	dealer, err := h.store.Queries.GetDealer(c.Context(), id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "dealer not found"})
+	}
+
+	return c.JSON(dealer)
 }
 
 func (h *PlatformHandler) ListDealers(c *fiber.Ctx) error {
@@ -155,15 +173,57 @@ func (h *PlatformHandler) ListBuilds(c *fiber.Ctx) error {
 func (h *PlatformHandler) TriggerBuild(c *fiber.Ctx) error {
 	var body struct {
 		DealerSlug string `json:"dealer_slug"`
-		Platform   string `json:"platform"` // "android" or "ios"
+		Platform   string `json:"platform"` // "android", "ios", or "both"
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
-	// Placeholder - would trigger generate-build.sh via worker
+	if body.DealerSlug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "dealer_slug is required"})
+	}
+	if body.Platform == "" {
+		body.Platform = "both"
+	}
+
+	ghToken := os.Getenv("GITHUB_TOKEN")
+	ghRepo := os.Getenv("GITHUB_REPO") // e.g. "builderwire/lumber-now"
+	workflowID := "build-dealer-app.yml"
+
+	if ghToken == "" || ghRepo == "" {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "GitHub integration not configured"})
+	}
+
+	payload := map[string]interface{}{
+		"ref": "main",
+		"inputs": map[string]string{
+			"dealer_slug": body.DealerSlug,
+			"platform":    body.Platform,
+		},
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	url := fmt.Sprintf("https://api.github.com/repos/%s/actions/workflows/%s/dispatches", ghRepo, workflowID)
+	req, err := http.NewRequestWithContext(c.Context(), http.MethodPost, url, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create request"})
+	}
+	req.Header.Set("Authorization", "Bearer "+ghToken)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "failed to trigger workflow"})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": fmt.Sprintf("GitHub API returned %d", resp.StatusCode)})
+	}
+
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
-		"status":      "queued",
+		"status":      "triggered",
 		"dealer_slug": body.DealerSlug,
 		"platform":    body.Platform,
 	})

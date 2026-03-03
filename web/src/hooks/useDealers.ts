@@ -12,6 +12,17 @@ export function useDealers() {
   })
 }
 
+export function useGetDealer(id: string) {
+  return useQuery({
+    queryKey: ['dealers', id],
+    queryFn: async () => {
+      const { data } = await api.get<Dealer>(`/platform/dealers/${id}`)
+      return data
+    },
+    enabled: !!id,
+  })
+}
+
 export function useCreateDealer() {
   const qc = useQueryClient()
   return useMutation({
@@ -20,6 +31,20 @@ export function useCreateDealer() {
       return data
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['dealers'] }),
+  })
+}
+
+export function useUpdateDealer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...dealer }: Partial<Dealer> & { id: string }) => {
+      const { data } = await api.put<Dealer>(`/platform/dealers/${id}`, dealer)
+      return data
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['dealers'] })
+      qc.invalidateQueries({ queryKey: ['dealers', variables.id] })
+    },
   })
 }
 

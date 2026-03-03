@@ -15,6 +15,7 @@ import TenantList from '@/features/platform-admin/TenantList'
 import { lazy, Suspense } from 'react'
 
 const CreateDealerWizard = lazy(() => import('@/features/platform-admin/create-dealer/CreateDealerWizard'))
+const EditDealerPage = lazy(() => import('@/features/platform-admin/EditDealerPage'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,6 +68,13 @@ export default function App() {
                   <ProtectedRoute roles={['platform_admin']}>
                     <Suspense fallback={<WizardFallback />}>
                       <CreateDealerWizard />
+                    </Suspense>
+                  </ProtectedRoute>
+                } />
+                <Route path="platform/dealers/:id/edit" element={
+                  <ProtectedRoute roles={['platform_admin']}>
+                    <Suspense fallback={<WizardFallback />}>
+                      <EditDealerPage />
                     </Suspense>
                   </ProtectedRoute>
                 } />

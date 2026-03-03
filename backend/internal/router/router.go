@@ -131,6 +131,7 @@ func Setup(app *fiber.App, s *store.Store, authSvc *service.AuthService, h Handl
 	// Platform admin routes
 	platform := v1.Group("/platform", middleware.Auth(authSvc), middleware.RequireRole(domain.RolePlatformAdmin), middleware.RequestTimeout(30*time.Second), middleware.AuditLog())
 	platform.Get("/dealers", h.Platform.ListDealers)
+	platform.Get("/dealers/:id", h.Platform.GetDealer)
 	platform.Post("/dealers", h.Platform.CreateDealer)
 	platform.Put("/dealers/:id", h.Platform.UpdateDealer)
 	platform.Post("/dealers/:id/activate", h.Platform.ActivateDealer)

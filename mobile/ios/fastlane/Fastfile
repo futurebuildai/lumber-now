@@ -1,0 +1,32 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Build release IPA"
+  lane :build do
+    Dir.chdir("../..") do
+      sh("flutter", "build", "ipa", "--release",
+        "--export-options-plist=ios/ExportOptions.plist",
+        "--dart-define=API_BASE_URL=#{ENV['API_BASE_URL']}",
+        "--dart-define=TENANT_SLUG=#{ENV['TENANT_SLUG']}",
+        "--dart-define=PRIMARY_COLOR=#{ENV['PRIMARY_COLOR']}",
+        "--dart-define=SECONDARY_COLOR=#{ENV['SECONDARY_COLOR']}",
+        "--dart-define=APP_NAME=#{ENV['APP_NAME']}")
+    end
+  end
+
+  desc "Deploy to App Store Connect via TestFlight"
+  lane :deploy do
+    setup_ci if ENV["CI"]
+
+    match(type: "appstore", readonly: is_ci)
+
+    build
+
+    upload_to_testflight(
+      ipa: "../build/ios/ipa/lumber_now.ipa",
+      skip_waiting_for_build_processing: true,
+      apple_id: ENV["APPLE_APP_ID"],
+      app_identifier: ENV["APP_IDENTIFIER"] || "com.lumbernow.app"
+    )
+  end
+end

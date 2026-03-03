@@ -41,10 +41,20 @@ DART_DEFINES=(
 
 cd "$MOBILE_DIR"
 
+# Generate launcher icons if flutter_launcher_icons is available
+if flutter pub deps 2>/dev/null | grep -q flutter_launcher_icons; then
+  echo "==> Generating launcher icons..."
+  flutter pub run flutter_launcher_icons
+fi
+
 if [ "$PLATFORM" = "android" ] || [ "$PLATFORM" = "both" ]; then
   echo "==> Building Android APK..."
   flutter build apk --release "${DART_DEFINES[@]}"
   echo "==> Android APK: $MOBILE_DIR/build/app/outputs/flutter-apk/app-release.apk"
+
+  echo "==> Building Android AAB (for Play Store)..."
+  flutter build appbundle --release "${DART_DEFINES[@]}"
+  echo "==> Android AAB: $MOBILE_DIR/build/app/outputs/bundle/release/app-release.aab"
 fi
 
 if [ "$PLATFORM" = "ios" ] || [ "$PLATFORM" = "both" ]; then

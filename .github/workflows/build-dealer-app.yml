@@ -1,0 +1,144 @@
+name: Build Dealer App
+
+on:
+  workflow_dispatch:
+    inputs:
+      dealer_slug:
+        description: "Dealer slug (e.g. lumber-boss)"
+        required: true
+        type: string
+      platform:
+        description: "Target platform"
+        required: true
+        type: choice
+        options:
+          - android
+          - ios
+          - both
+
+env:
+  FLUTTER_VERSION: "3.22.0"
+  RUBY_VERSION: "3.2"
+  API_BASE_URL: ${{ secrets.API_BASE_URL }}
+
+jobs:
+  fetch-config:
+    name: Fetch Dealer Config
+    runs-on: ubuntu-latest
+    outputs:
+      dealer_name: ${{ steps.config.outputs.dealer_name }}
+      dealer_id: ${{ steps.config.outputs.dealer_id }}
+      primary_color: ${{ steps.config.outputs.primary_color }}
+      secondary_color: ${{ steps.config.outputs.secondary_color }}
+      logo_url: ${{ steps.config.outputs.logo_url }}
+    steps:
+      - name: Fetch tenant config
+        id: config
+        run: |
+          CONFIG=$(curl -sf "${{ env.API_BASE_URL }}/tenant/config?slug=${{ inputs.dealer_slug }}")
+          echo "dealer_name=$(echo "$CONFIG" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "dealer_id=$(echo "$CONFIG" | jq -r '.dealer_id')" >> "$GITHUB_OUTPUT"
+          echo "primary_color=$(echo "$CONFIG" | jq -r '.primary_color' | sed 's/#//')" >> "$GITHUB_OUTPUT"
+          echo "secondary_color=$(echo "$CONFIG" | jq -r '.secondary_color' | sed 's/#//')" >> "$GITHUB_OUTPUT"
+          echo "logo_url=$(echo "$CONFIG" | jq -r '.logo_url')" >> "$GITHUB_OUTPUT"
+
+  build-android:
+    name: Build & Deploy Android
+    needs: fetch-config
+    if: inputs.platform == 'android' || inputs.platform == 'both'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: mobile/android
+
+      - name: Install Fastlane
+        run: gem install fastlane
+        working-directory: mobile/android
+
+      - name: Inject assets
+        run: ./scripts/inject-assets.sh "${{ inputs.dealer_slug }}" "${{ needs.fetch-config.outputs.dealer_name }}" "${{ needs.fetch-config.outputs.logo_url }}"
+
+      - name: Write Play Store key
+        run: echo '${{ secrets.PLAY_STORE_JSON_KEY }}' > mobile/android/fastlane/play-store-key.json
+
+      - name: Build & deploy via Fastlane
+        working-directory: mobile/android
+        env:
+          API_BASE_URL: ${{ env.API_BASE_URL }}
+          TENANT_SLUG: ${{ inputs.dealer_slug }}
+          PRIMARY_COLOR: ${{ needs.fetch-config.outputs.primary_color }}
+          SECONDARY_COLOR: ${{ needs.fetch-config.outputs.secondary_color }}
+          APP_NAME: ${{ needs.fetch-config.outputs.dealer_name }}
+          PLAY_STORE_JSON_KEY_PATH: fastlane/play-store-key.json
+        run: fastlane deploy
+
+      - name: Clean up key
+        if: always()
+        run: rm -f mobile/android/fastlane/play-store-key.json
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab-${{ inputs.dealer_slug }}
+          path: mobile/build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
+
+  build-ios:
+    name: Build & Deploy iOS
+    needs: fetch-config
+    if: inputs.platform == 'ios' || inputs.platform == 'both'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: mobile/ios
+
+      - name: Install Fastlane
+        run: gem install fastlane
+
+      - name: Inject assets
+        run: ./scripts/inject-assets.sh "${{ inputs.dealer_slug }}" "${{ needs.fetch-config.outputs.dealer_name }}" "${{ needs.fetch-config.outputs.logo_url }}"
+
+      - name: Build & deploy via Fastlane
+        working-directory: mobile/ios
+        env:
+          API_BASE_URL: ${{ env.API_BASE_URL }}
+          TENANT_SLUG: ${{ inputs.dealer_slug }}
+          PRIMARY_COLOR: ${{ needs.fetch-config.outputs.primary_color }}
+          SECONDARY_COLOR: ${{ needs.fetch-config.outputs.secondary_color }}
+          APP_NAME: ${{ needs.fetch-config.outputs.dealer_name }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: fastlane deploy
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ inputs.dealer_slug }}
+          path: mobile/build/ios/ipa/*.ipa
+          retention-days: 30

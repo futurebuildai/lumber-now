@@ -1,10 +1,22 @@
 import { Link } from 'react-router-dom'
+import { useMutation } from '@tanstack/react-query'
 import { useDealers, useToggleDealerActive } from '@/hooks/useDealers'
-import { Building2, Plus } from 'lucide-react'
+import api from '@/api/client'
+import { Building2, Plus, Pencil, Smartphone } from 'lucide-react'
+
+function useTriggerBuild() {
+  return useMutation({
+    mutationFn: async ({ dealerSlug, platform }: { dealerSlug: string; platform: string }) => {
+      const { data } = await api.post('/platform/builds', { dealer_slug: dealerSlug, platform })
+      return data
+    },
+  })
+}
 
 export default function TenantList() {
   const { data: dealers, isLoading } = useDealers()
   const toggleActive = useToggleDealerActive()
+  const triggerBuild = useTriggerBuild()
 
   if (isLoading) {
     return (
@@ -64,13 +76,30 @@ export default function TenantList() {
                   </span>
                 </td>
                 <td className="px-6 py-4 text-sm">
-                  <button
-                    onClick={() => toggleActive.mutate({ id: d.id, active: d.active })}
-                    disabled={toggleActive.isPending}
-                    className={`font-medium disabled:opacity-50 ${d.active ? 'text-destructive hover:text-destructive/80' : 'text-green-700 hover:text-green-600'}`}
-                  >
-                    {d.active ? 'Deactivate' : 'Activate'}
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <Link
+                      to={`/platform/dealers/${d.id}/edit`}
+                      className="inline-flex items-center gap-1 font-medium text-primary hover:text-primary/80"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </Link>
+                    <button
+                      onClick={() => triggerBuild.mutate({ dealerSlug: d.slug, platform: 'both' })}
+                      disabled={triggerBuild.isPending}
+                      className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                    >
+                      <Smartphone className="h-3.5 w-3.5" />
+                      Build App
+                    </button>
+                    <button
+                      onClick={() => toggleActive.mutate({ id: d.id, active: d.active })}
+                      disabled={toggleActive.isPending}
+                      className={`font-medium disabled:opacity-50 ${d.active ? 'text-destructive hover:text-destructive/80' : 'text-green-700 hover:text-green-600'}`}
+                    >
+                      {d.active ? 'Deactivate' : 'Activate'}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
